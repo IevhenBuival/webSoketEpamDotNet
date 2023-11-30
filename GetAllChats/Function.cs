@@ -31,7 +31,46 @@ public class Function
 
         var result = new List<GetAllChatsResponseItem>(chats.Count);
 
-		// TODO 
+        request.QueryStringParameters.TryGetValue("pageSize", out var pageSizeString);
+        int.TryParse(pageSizeString, out var pageSize);
+        pageSize = pageSize == 0 ? 50 : pageSize;
+        
+        if (pageSize > 1000 || pageSize < 1)
+        {
+            return new APIGatewayProxyResponse()
+            {
+                StatusCode = (int)HttpStatusCode.OK,
+                Headers = new Dictionary<string, string>
+                {
+                    { "Content-Type", "application/json" },
+                    { "Access-Control-Allow-Origin", "*" }
+                },
+
+                Body = "Invalid pageSize."
+            };
+        }
+        request.QueryStringParameters.TryGetValue("lastid", out var lastId);
+		
+        var chats = new QueryOperationConfig()
+        {
+            KeyExpression = new Expression()
+            {
+               ExpressionStatement = "id != :fake",
+               ExpressionAttributeValues = new Dictionary<string, DynamoDBEntry>() 
+                { { ":fake", "I_HOPE_THIS_CONDITION_NO_CHANCE_TO_WORK" } }
+            },
+            Limit = pageSize,
+            BackwardSearch = true
+        };
+         if (lastId != null)
+        {
+            chatMessages.PaginationToken = lastId;
+        }
+      
+        var search = result.Query(chatMessages);
+        var results = await search.GetNextSetAsync();
+        context.Logger.LogInformation("Pagination token: " +search.PaginationToken);
+        var items = _context.FromDocuments<ChatMessage>(results);
 		
         return new APIGatewayProxyResponse
         {
@@ -42,7 +81,8 @@ public class Function
                 { "Access-Control-Allow-Origin", "*" }
             },
 
-            Body = JsonSerializer.Serialize(result)
+            Body = JsonSerializer.Serialize(new 
+                { search.PaginationToken, Chats = items })
         };
     }
 
